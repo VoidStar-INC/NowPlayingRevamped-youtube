@@ -1,507 +1,195 @@
 "use strict";
 
-// --- State ---
-let newSong = "", newArtist = "", newAlbum = "", newTrackId = "";
-let currentSong = "", currentArtist = "", currentAlbum = "", currentTrackId = "";
-let isPlaying = false, previousIsPlaying = false, isLoadingCanvas = false;
-let lastAlbumUpdate = 0;
+// ─── Settings ──────────────────────────────────────────────────────────────
+const SETTINGS = {
+    pollInterval:      1000,       // How often to check for song changes (ms)
+    artRefreshDelay:   200,        // Delay before refreshing album art (ms)
+    transitionDelay:   300,        // Delay for text swap animation (ms)
+    hideWhenEmpty:     true,       // Auto-hide widget when nothing is playing
+    placeholder:       "the vibes will return shortly :)", // Shown when nothing plays
 
-const videoLoadTimeout = 50000;
-const apiRetryDelay = 1000;
-const maxApiRetries = 10; // Set max retries to 10
+    // File paths — must match what Simple Web Server is serving
+    titleFile:         "Tuna-nowplaying.txt",
+    artistFile:        "tuna-artist.txt",
+    coverFile:         "cover.png",
 
-// --- Utility ---
-const timeout = ms => new Promise(res => setTimeout(res, ms));
-const debugLog = msg => console.log("[NowPlaying Debug]", msg);
+    // Source filtering — add keywords to IGNORE certain sources
+    // e.g. if Windows Media sees your game audio reporting a track name, ignore it
+    ignoredArtists:    [],   // e.g. ["Rocket League", "Windows"]
+    ignoredTitles:     [],   // e.g. ["Unknown", ""]
+};
 
-// --- Data Fetch ---
-async function readSpotilocalData() {
+// ─── State ─────────────────────────────────────────────────────────────────
+let currentTitle  = "";
+let currentArtist = "";
+let isVisible     = false;
+let coverVersion  = 0; // cache-buster for album art
+
+// ─── DOM refs ──────────────────────────────────────────────────────────────
+const widget    = document.getElementById("nowplaying-widget");
+const albumArt  = document.getElementById("album-art");
+const artistEl  = document.getElementById("artist-name");
+const titleEl   = document.getElementById("track-title");
+const progressBar = document.getElementById("progress-bar");
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function fetchText(url) {
     try {
-        const response = await fetch("Spotilocal.json");
-        if (!response.ok) throw new Error("Failed to fetch Spotilocal.json: " + response.status);
-        const data = await response.json();
-        isPlaying = data && data.isPlaying;
-        if (!data) return null;
-        return {
-            artist: data.currentArtists?.[0]?.name || "",
-            track: data.currentTrack?.name || "",
-            album: data.currentAlbum?.name || "",
-            trackId: data.currentTrack?.uri?.split("spotify:track:")[1] || "",
-            albumArt: data.currentAlbum?.image_large || "",
-            isPlaying: data.isPlaying
-        };
-    } catch (e) {
-        console.error("Error reading Spotilocal data:", e);
+        const res = await fetch(url + "?t=" + Date.now()); // prevent caching
+        if (!res.ok) return null;
+        const text = (await res.text()).trim();
+        return text || null;
+    } catch {
         return null;
     }
 }
 
-// --- Metadata Polling ---
-async function checkMetadata() {
-    try {
-        const spotilocalData = await readSpotilocalData();
-        if (spotilocalData) {
-            newArtist = spotilocalData.artist;
-            newSong = spotilocalData.track;
-            newAlbum = spotilocalData.album;
-            newTrackId = spotilocalData.trackId;
-            if (isPlaying !== previousIsPlaying) {
-                debugLog("Playback state changed: " + (isPlaying ? "Playing" : "Paused"));
-                updatePlaybackState();
-                previousIsPlaying = isPlaying;
-            }
-            if (newSong !== currentSong || newArtist !== currentArtist || newAlbum !== currentAlbum || newTrackId !== currentTrackId) {
-                await animateMetadataTransition();
-            }
-        }
-        await timeout(2000);
-    } catch (e) {
-        console.error(e);
+function isIgnored(title, artist) {
+    if (!title && !artist) return true;
+    if (title === SETTINGS.placeholder) return true;
+    for (const ignored of SETTINGS.ignoredArtists) {
+        if (artist && artist.toLowerCase().includes(ignored.toLowerCase())) return true;
     }
-    await checkMetadata();
+    for (const ignored of SETTINGS.ignoredTitles) {
+        if (title && title.toLowerCase().includes(ignored.toLowerCase())) return true;
+    }
+    return false;
 }
 
-// --- UI State ---
-function updatePlaybackState() {
-    const canvasVideo = document.getElementById("canvasvideo");
-    const albumImage = document.getElementById("albumimage");
-    const topLabel = document.getElementById("topLabel");
-    const bottomLabel = document.getElementById("bottomLabel");
-    if (!isPlaying) {
-        if (canvasVideo) fadeOutElement(canvasVideo, () => {
-            canvasVideo.pause();
-            canvasVideo.removeAttribute('src');
-            canvasVideo.load();
-        });
-        if (albumImage) fadeOutElement(albumImage); // Hide album cover when paused
-        if (topLabel) fadeOutElement(topLabel);
-        if (bottomLabel) fadeOutElement(bottomLabel);
-        debugLog("Paused: Fading out elements");
-    } else if (!isLoadingCanvas) {
-        if (newTrackId) tryLoadCanvasVideo(newTrackId);
-        if (canvasVideo && canvasVideo.style.opacity === '1') {
-            if (albumImage) fadeOutElement(albumImage); // Hide album cover when video is playing
-        } else {
-            if (albumImage) fadeInElement(albumImage); // Keep album cover visible if video is not playing
-        }
-        if (topLabel) fadeInElement(topLabel);
-        if (bottomLabel) fadeInElement(bottomLabel);
-        debugLog("Playing: Attempting to show elements");
-    }
+// ─── Widget Visibility ─────────────────────────────────────────────────────
+function showWidget() {
+    if (isVisible) return;
+    isVisible = true;
+    widget.classList.remove("hidden", "slide-out");
+    widget.classList.add("slide-in");
 }
 
-// --- Animation Helpers ---
-const fadeDuration = 500;
-function fadeInElement(element) {
-    if (!element || element.style.opacity === '1') return;
-    element.style.transition = `opacity ${fadeDuration / 1000}s ease-in-out`;
-    element.style.opacity = '0';
-    element.style.display = 'block';
-    setTimeout(() => { element.style.opacity = '1'; }, 20);
-}
-
-function fadeOutElement(element, callback) {
-    if (!element || element.style.opacity === '0' || element.style.display === 'none') {
-        if (callback) callback();
-        return;
-    }
-    element.style.transition = `opacity ${fadeDuration / 1000}s ease-in-out`;
-    setTimeout(() => { element.style.opacity = '0'; }, 20);
+function hideWidget() {
+    if (!isVisible) return;
+    isVisible = false;
+    widget.classList.remove("slide-in");
+    widget.classList.add("slide-out");
     setTimeout(() => {
-        if (callback) callback();
-    }, fadeDuration + 30);
+        if (!isVisible) widget.classList.add("hidden");
+    }, 500);
 }
 
-function copyStyles(source, target) {
-    if (!source || !target) return;
-    const cs = window.getComputedStyle(source);
-    target.style.borderRadius = cs.borderRadius;
-    target.style.width = source.offsetWidth + "px";
-    target.style.height = source.offsetHeight + "px";
-    target.style.top = source.offsetTop + "px";
-    target.style.left = source.offsetLeft + "px";
-    target.style.position = "absolute";
-    target.style.objectFit = "cover";
-    target.style.zIndex = "1";
+// ─── Album Art ─────────────────────────────────────────────────────────────
+function refreshAlbumArt() {
+    coverVersion++;
+    albumArt.classList.add("loading");
+    const newSrc = SETTINGS.coverFile + "?v=" + coverVersion + "&t=" + Date.now();
+    const testImg = new Image();
+    testImg.onload = () => {
+        albumArt.src = newSrc;
+        albumArt.classList.remove("loading");
+    };
+    testImg.onerror = () => {
+        // Keep existing art if new one fails to load
+        albumArt.classList.remove("loading");
+    };
+    testImg.src = newSrc;
 }
 
-// --- Canvas Video Loader (Finite Retry) ---
-async function tryLoadCanvasVideo(trackId) {
-    const albumImage = document.getElementById("albumimage");
-    if (isLoadingCanvas) {
-        debugLog("Already loading canvas, skipping request");
-        return;
-    }
-    if (!trackId || !isPlaying) {
-        debugLog("No track ID provided or playback is paused");
-        if (albumImage) fadeInElement(albumImage); // Ensure album cover is visible
-        return;
-    }
-    if (!albumImage) {
-        debugLog("Album image element not found, cannot load canvas");
-        return;
-    }
+// ─── Progress Bar ──────────────────────────────────────────────────────────
+// TUNA's webserver (port 1608) exposes JSON with duration/progress data
+// We poll it separately for the progress bar
+let progressPollActive = false;
 
-    // Fade in album cover while fetching API
-    fadeInElement(albumImage);
-
-    isLoadingCanvas = true;
-    debugLog("Loading canvas for track ID: " + trackId);
-    const canvasApiUrl = `https://api.paxsenix.biz.id/spotify/canvas?id=${trackId}`;
-    let retryCount = 0;
-    let canvasUrl = null;
-
-    // Retry logic with delays
-    while (retryCount < maxApiRetries) {
-        debugLog(`Attempting to fetch canvas data (Attempt ${retryCount + 1}/${maxApiRetries})`);
+async function pollProgress() {
+    if (progressPollActive) return;
+    progressPollActive = true;
+    while (true) {
         try {
-            const response = await fetch(canvasApiUrl);
-            if (!response.ok) throw new Error("API request failed with status " + response.status);
-            const canvasData = await response.json();
-            debugLog("API Response Data: " + JSON.stringify(canvasData));
-
-            if (
-                canvasData &&
-                canvasData.ok &&
-                Array.isArray(canvasData.data?.canvasesList) &&
-                canvasData.data.canvasesList.length > 0
-            ) {
-                canvasUrl = canvasData.data.canvasesList[0]?.canvasUrl;
-                debugLog("Canvas URL found: " + canvasUrl);
-                break;
-            } else if (canvasData && canvasData.ok && Array.isArray(canvasData.data?.canvasesList) && canvasData.data.canvasesList.length === 0) {
-                debugLog("No video available for this song (empty canvasesList)");
-                isLoadingCanvas = false;
-                return; // Keep album cover visible
-            } else {
-                debugLog("No valid canvas data found. Retrying...");
+            const res = await fetch("http://localhost:1608?t=" + Date.now());
+            if (res.ok) {
+                const data = await res.json();
+                const progress = data.progress_ms  || 0;
+                const duration = data.duration_ms  || 0;
+                if (duration > 0) {
+                    const pct = Math.min(100, (progress / duration) * 100);
+                    progressBar.style.width = pct + "%";
+                } else {
+                    progressBar.style.width = "0%";
+                }
             }
-        } catch (e) {
-            debugLog("Error fetching canvas data: " + e);
+        } catch {
+            progressBar.style.width = "0%";
         }
-        retryCount++;
-        debugLog(`Waiting ${apiRetryDelay}ms before next retry...`);
-        await timeout(apiRetryDelay);
-    }
-
-    if (!canvasUrl) {
-        debugLog("No usable canvas found after retries.");
-        isLoadingCanvas = false;
-        return; // Keep album cover visible
-    }
-
-    let canvasVideo = document.getElementById("canvasvideo");
-    if (!canvasVideo) {
-        debugLog("Creating new canvas video element");
-        canvasVideo = document.createElement("video");
-        canvasVideo.id = "canvasvideo";
-        canvasVideo.loop = true;
-        canvasVideo.muted = true;
-        canvasVideo.autoplay = false;
-        canvasVideo.playsInline = true;
-        canvasVideo.style.transition = "opacity 0.5s ease-in-out";
-        canvasVideo.style.opacity = "0";
-        copyStyles(albumImage, canvasVideo);
-        const container = albumImage.parentNode;
-        if (container) {
-            container.insertBefore(canvasVideo, albumImage);
-        } else {
-            debugLog("Album image container not found, cannot insert canvas video");
-            isLoadingCanvas = false;
-            return; // Keep album cover visible
-        }
-    }
-
-    canvasVideo.style.opacity = "0";
-    canvasVideo.onloadeddata = null;
-    canvasVideo.onerror = null;
-
-    let videoLoadSuccess = false;
-    const loadTimeoutId = setTimeout(() => {
-        if (!videoLoadSuccess) {
-            debugLog("Canvas video loading timed out after " + videoLoadTimeout + "ms");
-            canvasVideo.style.display = "none";
-            canvasVideo.removeAttribute("src");
-            canvasVideo.load();
-            isLoadingCanvas = false;
-        }
-    }, videoLoadTimeout);
-
-    // Continuously check if the album cover is showing every 10ms
-    const albumCheckInterval = setInterval(() => {
-        if (albumImage.style.opacity === '1') {
-            debugLog("Album cover is visible while waiting for video.");
-        }
-    }, 10);
-
-    canvasVideo.onloadeddata = function () {
-        clearTimeout(loadTimeoutId);
-        clearInterval(albumCheckInterval); // Stop checking once the video is loaded
-        videoLoadSuccess = true;
-
-        if (!isPlaying) {
-            debugLog("Playback stopped after video loaded");
-            canvasVideo.style.display = "none";
-            isLoadingCanvas = false;
-            return; // Keep album cover visible
-        }
-
-        canvasVideo.play().then(() => {
-            debugLog("Canvas video playing successfully");
-            fadeInElement(canvasVideo); // Fade in video
-            fadeOutElement(albumImage); // Hide album cover when video plays
-            isLoadingCanvas = false;
-        }).catch(error => {
-            debugLog("Error playing canvas video: " + error);
-            canvasVideo.style.display = "none";
-            isLoadingCanvas = false;
-        });
-    };
-
-    canvasVideo.onerror = function () {
-        clearTimeout(loadTimeoutId);
-        clearInterval(albumCheckInterval); // Stop checking on error
-        debugLog("Error loading canvas video");
-        canvasVideo.style.display = "none";
-        isLoadingCanvas = false;
-    };
-
-    canvasVideo.style.display = "block";
-    canvasVideo.setAttribute("src", canvasUrl);
-    canvasVideo.load();
-}
-
-// --- Album Image Update ---
-function forceAlbumImageUpdate() {
-    const now = Date.now();
-    if (now - lastAlbumUpdate > 1000) {
-        const albumImage = document.getElementById("albumimage");
-        if (albumImage) {
-            const cacheBuster = "?t=" + now;
-            albumImage.src = "Spotilocal_Large.png" + cacheBuster;
-            lastAlbumUpdate = now;
-            debugLog("Forced album image update with cache buster: " + cacheBuster);
-        }
-    }
-}
-async function updateAlbumImage(albumImage) {
-    try {
-        const spotilocalData = await readSpotilocalData();
-        if (!spotilocalData) return;
-        forceAlbumImageUpdate();
-        if (spotilocalData.trackId && isPlaying && !isLoadingCanvas) {
-            tryLoadCanvasVideo(spotilocalData.trackId);
-        }
-    } catch (e) {
-        console.error("Error updating album image:", e);
+        await sleep(1000);
     }
 }
 
-// --- Animate Metadata Transition ---
-async function animateMetadataTransition() {
-    const topValue = await getValueForTopLabel();
-    const bottomValue = await getValueForBottomLabel();
-    if (currentSong.length === 0 && newSong.length > 0) {
-        await slideUpAlbumImage().catch(() => {});
-        await Promise.all([showBottomLabel(bottomValue), showTopLabel(topValue)]);
-    } else if (currentSong.length > 0 && bottomValue.length === 0) {
-        await Promise.all([hideTopLabel(), hideBottomLabel()]);
-        await slideDownAlbumImage();
-    } else if (currentAlbum !== newAlbum || newAlbum.length === 0 || currentTrackId !== newTrackId) {
-        await Promise.all([fadeOutAlbumImage(), hideTopLabel(), hideBottomLabel()]);
-        await Promise.all([fadeInAlbumImage().catch(() => {}), showTopLabel(topValue), showBottomLabel(bottomValue)]);
-    } else if (currentArtist !== newArtist) {
-        await Promise.all([hideTopLabel(), hideBottomLabel()]);
-        await Promise.all([showTopLabel(topValue), showBottomLabel(bottomValue)]);
-    } else {
-        await hideBottomLabel();
-        await showBottomLabel(bottomValue);
-    }
-    const delayBeforeDisappearance = await getValueForDelayBeforeDisappearance();
-    if (delayBeforeDisappearance) {
-        await timeout(delayBeforeDisappearance * 1000);
-        await Promise.all([hideTopLabel(), hideBottomLabel()]);
-        await slideDownAlbumImage();
-    }
-    currentArtist = newArtist;
-    currentSong = newSong;
-    currentAlbum = newAlbum;
-    currentTrackId = newTrackId;
+// ─── Text Transition ───────────────────────────────────────────────────────
+async function updateText(newTitle, newArtist) {
+    // Fade out current text
+    artistEl.classList.add("updating");
+    titleEl.classList.add("updating");
+    await sleep(SETTINGS.transitionDelay);
+
+    // Swap content
+    artistEl.textContent = newArtist || "Unknown Artist";
+    titleEl.textContent  = newTitle  || "Unknown Track";
+
+    // Fade back in
+    artistEl.classList.remove("updating");
+    titleEl.classList.remove("updating");
 }
 
-// --- Label/Album Animations ---
-async function showElement(element, animation) {
-    element.style.removeProperty('display');
-    await animateCSS(`#${element.id}`, animation).catch(() => {});
-}
-async function hideElement(element, animation, callback) {
-    return new Promise(resolve => {
-        const style = window.getComputedStyle(element);
-        if (style.display === 'none') {
-            if (callback) callback();
-            resolve();
-            return;
+// ─── Main Poll Loop ────────────────────────────────────────────────────────
+async function poll() {
+    const title  = await fetchText(SETTINGS.titleFile);
+    const artist = await fetchText(SETTINGS.artistFile);
+
+    const nothingPlaying =
+        !title ||
+        title === SETTINGS.placeholder ||
+        isIgnored(title, artist);
+
+    if (nothingPlaying) {
+        if (SETTINGS.hideWhenEmpty) hideWidget();
+        currentTitle  = "";
+        currentArtist = "";
+        await sleep(SETTINGS.pollInterval);
+        poll();
+        return;
+    }
+
+    const songChanged   = title  !== currentTitle;
+    const artistChanged = artist !== currentArtist;
+
+    if (!isVisible) {
+        // First appearance — set content silently then show
+        artistEl.textContent = artist || "Unknown Artist";
+        titleEl.textContent  = title  || "Unknown Track";
+        refreshAlbumArt();
+        showWidget();
+    } else if (songChanged || artistChanged) {
+        // Song changed — animate text swap and refresh art
+        await updateText(title, artist);
+        if (songChanged) {
+            await sleep(SETTINGS.artRefreshDelay);
+            refreshAlbumArt();
         }
-        animateCSS(`#${element.id}`, animation).then(() => {
-            element.style.setProperty('display', 'none');
-            if (callback) callback();
-            resolve();
-        }).catch(resolve);
-    });
-}
-async function showBottomLabel(innerHTML) {
-    const bottomLabel = document.getElementById("bottomLabel");
-    if (!bottomLabel) return;
-    bottomLabel.innerHTML = innerHTML;
-    await showElement(bottomLabel, 'fadeInLeft');
-}
-async function showTopLabel(innerHTML) {
-    const topLabel = document.getElementById("topLabel");
-    if (!topLabel) return;
-    topLabel.innerHTML = innerHTML;
-    await showElement(topLabel, 'fadeInLeft');
-}
-async function hideBottomLabel() {
-    const bottomLabel = document.getElementById("bottomLabel");
-    if (!bottomLabel) return;
-    await hideElement(bottomLabel, 'fadeOutLeft');
-}
-async function hideTopLabel() {
-    const topLabel = document.getElementById("topLabel");
-    if (!topLabel) return;
-    await hideElement(topLabel, 'fadeOutLeft');
-}
-async function slideUpAlbumImage() {
-    const albumImage = document.getElementById("albumimage");
-    if (!albumImage) return;
-    await updateAlbumImage(albumImage);
-    await showElement(albumImage, 'fadeInUp');
-}
-async function fadeInAlbumImage() {
-    const albumImage = document.getElementById("albumimage");
-    if (!albumImage) return;
-    albumImage.style.removeProperty('animation-delay');
-    await updateAlbumImage(albumImage);
-    await showElement(albumImage, 'fadeInUp'); // Use Animate.css for smooth animation
-}
-async function slideDownAlbumImage() {
-    const albumImage = document.getElementById("albumimage");
-    const canvasVideo = document.getElementById("canvasvideo");
-    if (!albumImage) return;
-    if (canvasVideo) {
-        await new Promise(resolve => fadeOutElement(canvasVideo, () => {
-            canvasVideo.pause();
-            canvasVideo.removeAttribute('src');
-            canvasVideo.load();
-            resolve();
-        }));
     }
-    await hideElement(albumImage, 'fadeOutDown');
-}
-async function fadeOutAlbumImage() {
-    const albumImage = document.getElementById("albumimage");
-    const canvasVideo = document.getElementById("canvasvideo");
-    if (!albumImage) return;
-    if (canvasVideo) {
-        await new Promise(resolve => fadeOutElement(canvasVideo, () => {
-            canvasVideo.pause();
-            canvasVideo.removeAttribute('src');
-            canvasVideo.load();
-            resolve();
-        }));
-    }
-    albumImage.style.setProperty('animation-delay', '0.3s');
-    await new Promise(resolve => fadeOutElement(albumImage, resolve));
-    albumImage.style.removeProperty('animation-delay');
+
+    currentTitle  = title;
+    currentArtist = artist;
+
+    await sleep(SETTINGS.pollInterval);
+    poll();
 }
 
-// --- Animate.css Helper ---
-function animateCSS(element, animation, prefix = 'animate__') {
-    return new Promise((resolve, reject) => {
-        const animationName = `${prefix}${animation}`;
-        const node = document.querySelector(element);
-        if (!node) {
-            reject("Element couldn't be found, nothing to animate");
-            return;
-        }
-        const style = window.getComputedStyle(node);
-        if (style.display === 'none') {
-            resolve('Element is hidden (display: none), nothing to animate');
-            return;
-        }
-        node.classList.add(`${prefix}animated`, animationName);
-        function handleAnimationEnd(event) {
-            if (event.target !== node) return;
-            event.stopPropagation();
-            node.classList.remove(`${prefix}animated`, animationName);
-            resolve('Animation ended');
-        }
-        node.addEventListener('animationend', handleAnimationEnd, { once: true });
-        node.addEventListener('animationcancel', handleAnimationEnd, { once: true });
-    });
-}
-
-// --- Settings Helpers ---
-async function getValueForTopLabel() {
-    try {
-        const result = await fetch("settings.json");
-        if (!result.ok) throw new Error("Failed to fetch settings.json: " + result.status);
-        const json = await result.json();
-        switch (json["topLabel"]) {
-            case "artist": return newArtist;
-            case "track": return newSong;
-            case "album": return newAlbum;
-            default: return newArtist;
-        }
-    } catch (e) {
-        console.error("Error getting top label value:", e);
-        return newArtist;
-    }
-}
-async function getValueForBottomLabel() {
-    try {
-        const result = await fetch("settings.json");
-        if (!result.ok) throw new Error("Failed to fetch settings.json: " + result.status);
-        const json = await result.json();
-        switch (json["bottomLabel"]) {
-            case "artist": return newArtist;
-            case "track": return newSong;
-            case "album": return newAlbum;
-            default: return newSong;
-        }
-    } catch (e) {
-        console.error("Error getting bottom label value:", e);
-        return newSong;
-    }
-}
-async function getValueForDelayBeforeDisappearance() {
-    try {
-        const result = await fetch("settings.json");
-        if (!result.ok) throw new Error("Failed to fetch settings.json: " + result.status);
-        const json = await result.json();
-        return json["delayBeforeDisappearance"] ? Number(json["delayBeforeDisappearance"]) : null;
-    } catch (e) {
-        console.error("Error getting delay before disappearance value:", e);
-        return null;
-    }
-}
-
-// --- Responsive Canvas Video ---
-window.addEventListener('resize', () => {
-    const albumImage = document.getElementById("albumimage");
-    const canvasVideo = document.getElementById("canvasvideo");
-    if (albumImage && canvasVideo && canvasVideo.style.display !== 'none') {
-        copyStyles(albumImage, canvasVideo);
-    }
-});
-
-// --- DOM Ready ---
+// ─── Boot ──────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-    debugLog("DOM loaded, starting metadata check");
-    checkMetadata();
-    const albumImage = document.getElementById("albumimage");
-    if (!albumImage) {
-        console.error("Critical error: Album image element (#albumimage) not found!");
-    }
-});
+    // Start hidden
+    widget.classList.add("hidden");
 
+    // Kick off polling
+    poll();
+
+    // Kick off progress bar (uses TUNA's local webserver)
+    pollProgress();
+});

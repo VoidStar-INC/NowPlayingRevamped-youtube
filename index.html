@@ -1,22 +1,26 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Now Playing</title>
-    <link rel="stylesheet" href="animate.min.css" />
-    <link rel="stylesheet" href="style.css" />
-
-    <script src="index.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Unbounded:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
-    <img id="albumimage">
-    <div id="verticalstack">
-        <p id="topLabel"></p>
-        <p id="bottomLabel"></p>
+    <div id="nowplaying-widget" class="hidden">
+        <div id="album-art-container">
+            <img id="album-art" src="" alt="Album Art">
+            <div id="progress-bar-container">
+                <div id="progress-bar"></div>
+            </div>
+        </div>
+        <div id="track-info">
+            <div id="artist-name"></div>
+            <div id="track-title"></div>
+        </div>
     </div>
+    <script src="index.js"></script>
 </body>
-
 </html>
-

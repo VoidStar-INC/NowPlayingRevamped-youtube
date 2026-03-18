@@ -1,40 +1,80 @@
-# Now Playing
-Demo:
-[![Demo](https://img.youtube.com/vi/yutA01A8jV0/maxresdefault.jpg)](https://youtu.be/yutA01A8jV0)
+# Now Playing Overlay — Setup Guide
 
-Now Playing is a webpage widget that tracks and visualizes what's playing on Spotify.
+Built for OBS Studio with TUNA plugin + Windows Media Control.
+Adapted from xMannyGamingx/NowPlayingRevamped, rebuilt for universal media support.
 
-Initially adapted from [Adar's Now Playing](https://github.com/adarhef/NowPlaying), my version fixes various issues with reliability, and added video canvas support.
-It also does not require Snip as it's bundled with [Spotilocal](https://github.com/jmswrnr/spotilocal) and [Simple Web Server](https://github.com/terreng/simple-web-server)
+---
 
-## Installation
+## Files in this folder
 
-Download the latest release from the Releases page and extract it somewhere.
+| File | Purpose |
+|------|---------|
+| index.html | The overlay layout |
+| index.js | Logic that reads TUNA output and updates the display |
+| style.css | Visual styling |
+| settings.json | Config options |
 
-* Set up Spotilocal: 
-    * Navigate to the extracted folder and run `Spotilocal-vX.X.XX.exe`.
-    * Log in to your Spotify
-    * Right click the tray icon, make sure `Large Image`, `Empty content files when paused`, `Save JSON state file`, `Save track history`, and `Enable web widget` are enabled.
-      
-* Set up Simple Web Server:
-    * Navigate to the extracted folder, run and install `Simple-Web-Server-Installer-X.X.XX.exe`
-    * Once installed, create a new server and set the path to the extracted folder, for example: `C:\Users\Manny\Downloads\NowPlayingRevamped\NowPlayingFinal`
-    * Turn on `Accessible on local network`
-    * Copy the URL
+---
 
-* Set up a Browser Source in OBS: 
-    * Set the size to 300 height and 1500 width, and put it in the bottom left of your scene. 
-    * Paste the URL you got from Simple Web Server.
+## Step 1 — TUNA Setup (already done)
 
-And that's it, it's that easy!
+Make sure TUNA has two outputs configured:
+- Format `{title}` → saved to your Stream data folder as `Tuna-nowplaying.txt`
+- Format `{first_artist}` → saved to your Stream data folder as `tuna-artist.txt`
+- Cover art path set to your Stream data folder as `cover.png`
+- Webserver enabled on port 1608
 
+---
 
-## Notes
+## Step 2 — Move these files
 
-If you want a solution for macOS, check out [NowPlayingRetreiver](https://github.com/adarhef/NowPlayingRetriever).
-If you want iTunes support, use the original [repo](https://github.com/adarhef/NowPlaying) for now...
+Copy this entire NowPlaying folder into:
+`E:\backup\Projects\Stream data\`
 
-Only supports OBS 27.2 and onwards.
+So the final paths look like:
+- `E:\backup\Projects\Stream data\NowPlaying\index.html`
+- `E:\backup\Projects\Stream data\NowPlaying\index.js`
+- etc.
 
-## License
-[MIT](https://choosealicense.com/licenses/mit/)
+---
+
+## Step 3 — Simple Web Server Setup
+
+1. Open Simple Web Server
+2. Click "New Server"
+3. Set the folder path to: `E:\backup\Projects\Stream data\`
+4. Enable "Accessible on local network"
+5. Note the URL it gives you (e.g. `http://localhost:3000`)
+6. Turn the server ON
+
+---
+
+## Step 4 — OBS Browser Source
+
+1. In OBS add a new Browser source
+2. Set URL to: `http://localhost:3000/NowPlaying/index.html`
+   (replace 3000 with whatever port Simple Web Server gave you)
+3. Width: 500, Height: 150
+4. Check "Refresh browser when scene becomes active"
+5. Position it in the bottom left of your scene
+
+---
+
+## Customization
+
+### Filtering out unwanted sources
+If Windows Media Control picks up game audio or system sounds you don't want displayed,
+open `index.js` and add them to the ignore lists near the top:
+
+```js
+ignoredArtists: ["Rocket League", "Windows"],
+ignoredTitles:  ["Unknown", ""],
+```
+
+### Colors
+Open `style.css` and change the `--accent` variable at the top:
+- Current: `#00e5ff` (cyan)
+- Try: `#ff6b6b` (red), `#a8ff78` (green), `#ffd700` (gold)
+
+### Size
+Change `--art-size` in style.css to make the album art bigger or smaller.

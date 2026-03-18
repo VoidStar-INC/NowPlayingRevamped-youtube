@@ -1,5 +1,7 @@
 {
-    "topLabel": "artist",
-    "bottomLabel": "track",
-    "delayBeforeDisappearance": null
+    "hideWhenEmpty": true,
+    "placeholder": "the vibes will return shortly :)",
+    "ignoredArtists": [],
+    "ignoredTitles": [],
+    "pollInterval": 1000
 }

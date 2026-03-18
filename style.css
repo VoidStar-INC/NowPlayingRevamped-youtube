@@ -1,59 +1,195 @@
 @charset "UTF-8";
-@import url('https://fonts.googleapis.com/css2?family=Eczar&family=Fira+Code:wght@300;400;500;600;700&display=swap');
-body {
-    font-family: "Fira Code", monospace;
+
+:root {
+    --accent: #00e5ff;
+    --accent-dim: rgba(0, 229, 255, 0.15);
+    --accent-glow: rgba(0, 229, 255, 0.4);
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.65);
+    --bg: rgba(0, 0, 0, 0);
+    --widget-bg: rgba(8, 8, 12, 0.72);
+    --border: rgba(0, 229, 255, 0.2);
+    --art-size: 80px;
+    --radius: 10px;
+    --transition: 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    background: transparent;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* ─── Widget Container ─────────────────────────────────── */
+#nowplaying-widget {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
     display: flex;
-    /* Body height should be restricted to the viewport size, minus the top and bottom padding */
-    height: calc(100vh - 12px - 12px);
-    font-size: 17vh;
-    padding: 12px;
+    align-items: center;
+    gap: 14px;
+    background: var(--widget-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 18px 12px 12px;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow:
+        0 0 0 1px rgba(0, 229, 255, 0.08),
+        0 8px 32px rgba(0, 0, 0, 0.6),
+        0 0 24px var(--accent-glow);
+    min-width: 280px;
+    max-width: 420px;
+
+    /* Slide-in animation state */
+    transform: translateY(0px);
+    opacity: 1;
+    transition:
+        transform var(--transition),
+        opacity var(--transition);
 }
 
-#albumimage {
-    box-shadow: #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px;
-    border-radius: 12px;
+#nowplaying-widget.hidden {
+    transform: translateY(20px);
+    opacity: 0;
+    pointer-events: none;
+}
+
+#nowplaying-widget.slide-in {
+    animation: slideIn 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+#nowplaying-widget.slide-out {
+    animation: slideOut 0.45s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes slideIn {
+    from { transform: translateY(20px); opacity: 0; }
+    to   { transform: translateY(0px);  opacity: 1; }
+}
+
+@keyframes slideOut {
+    from { transform: translateY(0px);  opacity: 1; }
+    to   { transform: translateY(20px); opacity: 0; }
+}
+
+/* ─── Album Art ────────────────────────────────────────── */
+#album-art-container {
+    position: relative;
     flex-shrink: 0;
+    width: var(--art-size);
+    height: var(--art-size);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08);
 }
 
-#verticalstack {
+#album-art {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: opacity 0.3s ease;
+}
+
+#album-art.loading {
+    opacity: 0;
+}
+
+/* ─── Progress Bar ─────────────────────────────────────── */
+#progress-bar-container {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.15);
+}
+
+#progress-bar {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+    transition: width 1s linear;
+}
+
+/* ─── Track Info ───────────────────────────────────────── */
+#track-info {
     display: flex;
     flex-direction: column;
-    flex-grow: 1;
-    justify-content: space-evenly;
-    overflow: hidden;
+    justify-content: center;
+    gap: 5px;
     min-width: 0;
+    flex: 1;
 }
 
-#topLabel {
-    color: hsl(34deg 75% 72%);
-    text-shadow: #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px;
-    font-weight: 600;
-    padding: 12px;
-    margin-top: 0;
-    margin-bottom: 0;
-    margin-left: 8px;
-    animation-delay: 0.05s;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-#bottomLabel {
-    color: #ffffff;
-    text-shadow: #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px, #000 0px 0 12px;
+#artist-name {
+    font-family: 'Unbounded', sans-serif;
     font-weight: 400;
-    padding-left: 12px;
-    padding-bottom: 20px;
-    padding-right: 5px;
-    margin-left: 8px;
-    margin-top: 0;
-    margin-bottom: 0;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-}
-
-p {
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: 0 0 12px var(--accent-glow);
+    transition: opacity 0.3s ease;
 }
 
+#track-title {
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: 0 1px 6px rgba(0,0,0,0.8);
+    transition: opacity 0.3s ease;
+}
+
+#artist-name.updating,
+#track-title.updating {
+    opacity: 0;
+}
+
+/* ─── Scanline texture overlay ─────────────────────────── */
+#nowplaying-widget::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 10;
+}
+
+/* ─── Left accent bar ──────────────────────────────────── */
+#nowplaying-widget::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 12px;
+    bottom: 12px;
+    width: 2px;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+    box-shadow: 0 0 8px var(--accent);
+    pointer-events: none;
+}
