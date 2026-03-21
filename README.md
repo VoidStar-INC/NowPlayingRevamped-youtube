@@ -1,4 +1,4 @@
-# NowPlayingRevamped-youtube
+# NowPlayingRevamped-universal
 
 A lightweight Now Playing overlay for OBS Studio, built on Windows Media Control via the TUNA plugin. Displays album art, track title, artist name, and a live progress bar as a browser source in your stream.
 
@@ -9,8 +9,10 @@ A lightweight Now Playing overlay for OBS Studio, built on Windows Media Control
 - YouTube (browser)
 - YouTube Music (browser)
 - Spotify (browser — see Spotify notes below)
+- Twitch (browser)
+- iHeart Radio (browser)
 
-> Universal browser-based media support is the goal. Other platforms may work via Windows Media Control but have not been fully tested yet.
+> This overlay works with any platform that registers with Windows Media Control through a browser. The list above is verified — many more platforms likely work without additional setup.
 
 ---
 
@@ -21,7 +23,7 @@ This project is part of a chain of open source contributions:
 - **[Zephens](https://obsproject.com/forum/resources/tuna.843/)** — created the original TUNA plugin for OBS
 - **[adarhn/NowPlaying](https://github.com/adarhn/NowPlaying)** — built the first browser-based Now Playing overlay concept
 - **[xMannyGamingx/NowPlayingRevamped](https://github.com/xMannyGamingx/NowPlayingRevamped)** — revamped it with Spotify support and improved reliability
-- **[VoidStar-INC/NowPlayingRevamped-youtube](https://github.com/VoidStar-INC/NowPlayingRevamped-youtube)** *(this repo)* — rebuilt for Windows Media Control, removing platform-specific dependencies and expanding toward universal media support
+- **[VoidStar-INC/NowPlayingRevamped-universal](https://github.com/VoidStar-INC/NowPlayingRevamped-universal)** *(this repo)* — rebuilt for Windows Media Control, removing platform-specific dependencies for broad universal media support
 
 ---
 
@@ -104,6 +106,12 @@ The Spotify desktop app does not register reliably with Windows Media Control. T
 
 ---
 
+## Known Limitations
+
+- **Multiple simultaneous sources** — if two browser tabs are playing audio at the same time, Windows Media Control will display whichever source became active most recently. When the second source stops, the first will not automatically repopulate until a new track change event occurs. This is a Windows Media Control behavior and is planned for improvement in a future update.
+
+---
+
 ## Customization
 
 ### Accent color
@@ -129,11 +137,10 @@ ignoredTitles:  ["Unknown", ""],
 
 ## Planned
 
-- Smoother Spotify integration without manual device switching
-- Broader platform support (SoundCloud, iHeart Radio, etc.)
+- Improved handling of multiple simultaneous audio sources
+- Broader platform testing and verification
 - Customizable widget position
 - Multiple visual themes
-- Rename repo once truly universal support is working
 
 ---
 
